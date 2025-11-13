@@ -106,11 +106,15 @@ export function renderParsedXml(teiElement) {
         </div>
       )}
       
-      {/* 2. Letter Content */}
-      {letterContent && (
-        <div className="max-w-none text-left">
-          {/* Render all children of the main content node */}
-          {renderNodeList(letterContent.childNodes, footnotesList)}
+      {/* 2. Letter Content - Handle multiple divs */}
+      {letterContent && letterContent.length > 0 && (
+        <div className="max-w-none text-left space-y-6">
+          {letterContent.map((contentDiv, index) => (
+            <div key={index} className="text-left">
+              {/* Render all children of each content div */}
+              {renderNodeList(contentDiv.childNodes, footnotesList)}
+            </div>
+          ))}
         </div>
       )}
       
@@ -315,9 +319,13 @@ function extractTitle(teiElement) {
 function extractLetterContent(teiElement) {
   try {
     const body = teiElement.querySelector("text > body");
-    if (!body) return null;    
-    const writingSession = body.querySelector("div[type='writingSession']");
-    return writingSession || body;
+    if (!body) return null;
+    
+    // Get all div elements in the body
+    const divs = Array.from(body.querySelectorAll("div"));
+    
+    // If there are divs, return them all; otherwise return the body itself
+    return divs.length > 0 ? divs : [body];
   } catch (e) {
     console.error('Error extracting letter content:', e);
     return null;
