@@ -35,7 +35,7 @@ export default function Preview({ loading, error, filename, children }) {
         )}
         
         {children && (
-          <div className="max-h-[600px] overflow-y-auto space-y-6 bg-gray-50 p-6 rounded-lg border">
+          <div className="space-y-6">
             {children}
           </div>
         )}
