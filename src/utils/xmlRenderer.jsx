@@ -55,27 +55,21 @@ export function renderParsedXml(parsed) {
   );
 }
 
+// Helper to safely get the first element from a potential array
+function getFirst(item) {
+  return Array.isArray(item) ? item[0] : item;
+}
+
 function extractTitle(tei) {
   try {
-    const header = tei.teiHeader || tei.TEIHeader;
-    const fileDesc = header.fileDesc;
-    const titleStmt = fileDesc.titleStmt;
+    const header = getFirst(tei.teiHeader) || getFirst(tei.TEIHeader);
+    const fileDesc = getFirst(header.fileDesc);
+    const titleStmt = getFirst(fileDesc.titleStmt);
     
     if (titleStmt.title) {
-      const title = titleStmt.title;
-      
-
-      
-      // If it's a simple string, return it
-      if (typeof title === 'string') return title;
-      
-      // If it's an array, take the first item
-      if (Array.isArray(title)) {
-        return renderTitleContent(title[0]);
-      }
-      
-      // If it's an object, render it properly
-      return renderTitleContent(title);
+      // title content is an array of text and <lb> nodes
+      const titleContent = titleStmt.title;
+      return renderTitleContent(titleContent);
     }
     
     return null;
@@ -85,97 +79,36 @@ function extractTitle(tei) {
   }
 }
 
-function renderTitleContent(titleObj) {
-  if (typeof titleObj === 'string') {
-    return titleObj;
+function renderTitleContent(titleContent) {
+  if (typeof titleContent === 'string') {
+    return titleContent;
+  }
+
+  // Handle arrays from preserveOrder
+  if (Array.isArray(titleContent)) {
+    return (
+      <React.Fragment>
+        {titleContent.map((item, index) => {
+          if (item['#text']) {
+            return item['#text'];
+          }
+          if (item.lb !== undefined) {
+            return <br key={`lb-${index}`} />;
+          }
+          // Handle nested tags within title if any
+          const tagName = Object.keys(item).find(k => !k.startsWith('@_'));
+          if (tagName) {
+            return renderTitleContent(item[tagName]); // Recursive
+          }
+          return null;
+        })}
+      </React.Fragment>
+    );
   }
   
-  if (typeof titleObj === 'object' && titleObj !== null) {
-    // Handle simple text content
-    if (titleObj['#text'] && Object.keys(titleObj).length === 1) {
-      return titleObj['#text'];
-    }
-    
-    // Special case: title with lb tag where parser combines text
-    // The structure is: { "lb": "", "#text": "Part1Part2" }
-    // We need to split the text and insert line breaks
-    if (titleObj['lb'] !== undefined && titleObj['#text']) {
-      const text = titleObj['#text'];
-      
-      // Common patterns to split on for German letters
-      // Look for patterns like "PersonName an PersonNamevom Date" or "Title vom Date"
-      const patterns = [
-        /(\s+vom\s+)/i,
-        /(\s+am\s+)/i, 
-        /(\s+den\s+)/i,
-        /(vom\s+)/i
-      ];
-      
-      for (const pattern of patterns) {
-        if (pattern.test(text)) {
-          const parts = text.split(pattern);
-          if (parts.length >= 2) {
-            const result = [];
-            result.push(parts[0]);
-            result.push(<br key="title-lb" />);
-            // Add the separator and rest back together
-            result.push(parts.slice(1).join(''));
-            return <span>{result}</span>;
-          }
-        }
-      }
-      
-      // Fallback: if no pattern matches, just return the text
-      return text;
-    }
-    
-    // Handle mixed content - this is the key part for titles with <lb/> tags
-    const parts = [];
-    
-    // The XML parser might structure mixed content differently
-    // Let's handle various possible structures
-    if (Array.isArray(titleObj)) {
-      // If title is an array of mixed content
-      titleObj.forEach((item, index) => {
-        if (typeof item === 'string') {
-          parts.push(item);
-        } else if (item === null || item === undefined) {
-          // Sometimes <lb/> gets parsed as null/undefined
-          parts.push(<br key={`lb-${index}`} />);
-        } else if (typeof item === 'object') {
-          // Handle nested objects
-          parts.push(renderTitleContent(item));
-        }
-      });
-    } else {
-      // Handle object with mixed content
-      Object.entries(titleObj).forEach(([key, value], index) => {
-        if (key === '#text') {
-          // Split text by potential line break markers and add the text
-          if (typeof value === 'string') {
-            parts.push(value);
-          }
-        } else if (key === 'lb') {
-          // Add line break - can be single or array
-          if (Array.isArray(value)) {
-            value.forEach((_, i) => parts.push(<br key={`lb-${index}-${i}`} />));
-          } else {
-            parts.push(<br key={`lb-${index}`} />);
-          }
-        } else if (!key.startsWith('@_')) {
-          // Handle other inline elements
-          if (typeof value === 'string') {
-            parts.push(value);
-          } else if (value && typeof value === 'object') {
-            parts.push(renderTitleContent(value));
-          }
-        }
-      });
-    }
-    
-    if (parts.length > 0) {
-      return <span>{parts}</span>;
-    }
+  // Fallback for simple object (e.g., just { '#text': '...' })
+  if (typeof titleContent === 'object' && titleContent !== null && titleContent['#text']) {
+    return titleContent['#text'];
   }
   
   return null;
@@ -183,19 +116,19 @@ function renderTitleContent(titleObj) {
 
 function extractLetterContent(tei) {
   try {
-    const text = tei.text;
-    const body = text.body;
+    const text = getFirst(tei.text);
+    const body = getFirst(text.body);
     
     // Look for div with type="writingSession" or just use body
     if (body.div) {
-      const writingSession = Array.isArray(body.div) 
-        ? body.div.find(d => d['@_type'] === 'writingSession') || body.div[0]
-        : body.div;
+      const allDivs = Array.isArray(body.div) ? body.div : [body.div];
+      const writingSession = allDivs.find(d => d['@_type'] === 'writingSession') || allDivs[0];
       return writingSession;
     }
     
     return body;
   } catch (e) {
+    console.error('Error extracting letter content:', e);
     return null;
   }
 }
@@ -203,9 +136,11 @@ function extractLetterContent(tei) {
 function renderLetterContent(content, footnotesList) {
   if (!content) return null;
   
+  // The content of writingSession is an array of <pb>, <opener>, <p>, etc.
+  // We render it directly.
   return (
     <div className="space-y-4">
-      {renderTEIElement(content, footnotesList)}
+      {renderContent(content, footnotesList, false)}
     </div>
   );
 }
@@ -213,44 +148,41 @@ function renderLetterContent(content, footnotesList) {
 function renderTEIElement(element, footnotesList, key = 'element', inline = false) {
   if (!element) return null;
   
-
+  // Handle text node
+  if (element['#text']) {
+    return element['#text'];
+  }
   
-  // Handle text content
+  // Handle string (should be rare now, but good failsafe)
   if (typeof element === 'string') {
-    return <span key={key}>{element}</span>;
+    return element;
   }
   
-  // Handle arrays
+  // Handle arrays (e.g., multiple <p> tags)
   if (Array.isArray(element)) {
-    if (inline) {
-      // For inline arrays, add spaces between elements
-      const items = [];
-      element.forEach((item, index) => {
-        if (index > 0) {
-          items.push(' '); // Add space before each item except the first
-        }
-        items.push(renderTEIElement(item, footnotesList, `${key}-${index}`, inline));
-      });
-      return <span key={key}>{items}</span>;
-    } else {
-      // For block arrays, use div with spacing
+      const Wrapper = inline ? React.Fragment : 'div';
+      const className = !inline ? 'space-y-2' : '';
       return (
-        <div key={key} className="space-y-2">
+        <Wrapper key={key} className={className}>
           {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`, inline))}
-        </div>
+        </Wrapper>
       );
-    }
   }
   
-  // Handle objects
-  if (typeof element === 'object') {
+  // Handle a single element node (e.g., { "p": [...] } or { "rs": [...] })
+  if (typeof element === 'object' && element !== null) {
     const tagEntries = Object.entries(element).filter(([k]) => !k.startsWith('@_'));
-    
-    // Use span for inline rendering, div for block
+
+    // This should now be the main path
+    if (tagEntries.length === 1) {
+      const [tagName, content] = tagEntries[0];
+      return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`, inline);
+    }
+
+    // Fallback for mis-parsed objects (like <opener> which has multiple children)
     const Wrapper = inline ? 'span' : 'div';
-    
     return (
-      <Wrapper key={key}>
+      <Wrapper key={key} className={!inline ? 'space-y-2' : ''}>
         {tagEntries.map(([tagName, content]) => {
           return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`, inline);
         })}
@@ -262,10 +194,20 @@ function renderTEIElement(element, footnotesList, key = 'element', inline = fals
 }
 
 function renderTEITag(tagName, content, element, footnotesList, key, inline = false) {
-  const attributes = Object.entries(element).filter(([k]) => k.startsWith('@_'));
-  const attrs = Object.fromEntries(attributes.map(([k, v]) => [k.substring(2), v]));
+  // Get attributes from the parent 'element' object
+  const attrs = Object.fromEntries(
+    Object.entries(element)
+      .filter(([k]) => k.startsWith('@_'))
+      .map(([k, v]) => [k.substring(2), v])
+  );
+  
+  // --- START: Simplified Entity Styling ---
+  // A generic style for all highlighted entities as requested.
+  const entityStyle = "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium";
+  // --- END: Simplified Entity Styling ---
   
   switch (tagName) {
+    // Block elements
     case 'p':
       return (
         <p key={key} className="mb-4 leading-relaxed">
@@ -274,10 +216,16 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       );
       
     case 'opener':
+      return (
+        <div key={key} className="mb-6 text-gray-700">
+          {renderContent(content, footnotesList, false)}
+        </div>
+      );
+
     case 'closer':
       return (
-        <div key={key} className={`${tagName === 'opener' ? 'mb-6' : 'mt-6'} italic text-gray-700`}>
-          {renderContent(content, footnotesList, true)}
+        <div key={key} className="mt-6 text-gray-700">
+          {renderContent(content, footnotesList, false)}
         </div>
       );
       
@@ -301,36 +249,20 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
           {renderContent(content, footnotesList, true)}
         </div>
       );
-      
+
+    // --- START: Updated Entity Tags (Highlight Only) ---
     case 'rs':
-      const rsType = attrs.type || 'reference';
-      const bgColor = getRsColor(rsType);
-      return (
-        <span key={key} className={`${bgColor} px-1 py-0.5 rounded text-sm font-medium`}>
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-      
     case 'persName':
-      return (
-        <span key={key} className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-      
     case 'placeName':
+    case 'work':
+    case 'organization': // Added common entity tags
+    case 'date': // 'date' was also styled, let's group it
       return (
-        <span key={key} className="bg-green-100 text-green-800 px-1 py-0.5 rounded text-sm font-medium">
+        <span key={key} className={entityStyle}>
           {renderContent(content, footnotesList, true)}
         </span>
       );
-      
-    case 'date':
-      return (
-        <span key={key} className="bg-purple-100 text-purple-800 px-1 py-0.5 rounded text-sm font-medium">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
+    // --- END: Updated Entity Tags ---
       
     case 'q':
       return (
@@ -341,7 +273,9 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       
     case 'note':
       const noteIndex = footnotesList.length + 1;
-      footnotesList.push(renderContent(content, [])); // Don't nest footnotes
+      // Pass an empty array for footnotesList to prevent nested notes
+      // but entities *inside* the note will still be rendered/highlighted
+      footnotesList.push(renderContent(content, [])); 
       return (
         <sup key={key} className="text-blue-600 hover:text-blue-800 cursor-help font-medium">
           {noteIndex}
@@ -362,36 +296,80 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       );
       
     case 'choice':
-      // For choice elements, prefer expan over abbr
-      if (content.expan) {
+      const expan = Array.isArray(content) ? content.find(n => n.expan) : null;
+      const abbr = Array.isArray(content) ? content.find(n => n.abbr) : null;
+
+      if (expan) {
         return (
           <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Expanded abbreviation">
-            {renderContent(content.expan, footnotesList, true)}
+            {renderContent(expan.expan, footnotesList, true)}
           </span>
         );
-      } else if (content.abbr) {
+      } else if (abbr) {
         return (
           <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Abbreviation">
-            {renderContent(content.abbr, footnotesList, true)}
+            {renderContent(abbr.abbr, footnotesList, true)}
           </span>
         );
       }
       return renderContent(content, footnotesList, inline);
       
+    // Other tags from your files
+    case 'add':
+      return (
+        <span key={key} className="text-green-700 bg-green-100" title="Addition">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+    
+    case 'del':
+      return (
+        <span key={key} className="text-red-700 line-through" title="Deletion">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+
+    case 'sic':
+      return (
+        <span key={key} className="italic text-gray-500" title="Original spelling retained">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+    
+    case 'supplied':
+      return (
+        <span key={key} className="text-gray-500" title="Supplied by editor">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+    
+    case 'formula':
+      return (
+        <span key={key} className="font-mono text-sm text-blue-700">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+
+    case 'unclear':
+      return (
+        <span key={key} className="bg-gray-100 text-gray-500" title="Unclear text">
+          {renderContent(content, footnotesList, true)}
+        </span>
+      );
+      
+    // Structural tags
     case 'pb':
-      // Page break - show as a subtle divider
-      return <div key={key} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
+      return <div key={key} title={`Page ${attrs.n}`} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
       
     case 'lb':
-      // Line break
       return <br key={key} />;
       
     case '#text':
-      return <span key={key}>{content}</span>;
+      return content;
       
     default:
-      // For unknown tags, just render content
-      return <span key={key}>{renderContent(content, footnotesList, true)}</span>;
+      // For unknown tags, just render their content
+      return <React.Fragment key={key}>{renderContent(content, footnotesList, inline)}</React.Fragment>;
   }
 }
 
@@ -401,28 +379,14 @@ function renderContent(content, footnotesList, inline = false) {
   }
   
   if (Array.isArray(content)) {
-    return content.map((item, index) => renderTEIElement(item, footnotesList, `content-${index}`, inline));
+    // This is the main path for mixed content (text nodes and element nodes)
+    return <>{content.map((item, index) => renderTEIElement(item, footnotesList, `content-${index}`, inline))}</>;
   }
   
-  if (typeof content === 'object') {
+  if (typeof content === 'object' && content !== null) {
+    // This handles cases where content is a single object (e.g., { '#text': '...' })
     return renderTEIElement(content, footnotesList, 'content', inline);
   }
   
   return null;
-}
-
-function getRsColor(type) {
-  switch (type) {
-    case 'person':
-      return 'bg-blue-100 text-blue-800';
-    case 'place':
-      return 'bg-green-100 text-green-800';
-    case 'work':
-    case 'book':
-      return 'bg-orange-100 text-orange-800';
-    case 'organization':
-      return 'bg-red-100 text-red-800';
-    default:
-      return 'bg-gray-100 text-gray-800';
-  }
 }
