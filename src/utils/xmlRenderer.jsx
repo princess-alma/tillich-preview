@@ -161,6 +161,10 @@ function renderNode(node, footnotesList, key) {
 
       // Structural tags
       case 'pb':
+        // Don't render the first page break (n=1) as it's redundant
+        if (attrs.n === '1' || attrs.n === 1) {
+          return null;
+        }
         return <div key={key} title={`Page ${attrs.n}`} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
       case 'lb':
         return <br key={key} />;
