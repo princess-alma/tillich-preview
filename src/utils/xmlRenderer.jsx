@@ -1,43 +1,40 @@
 import React from 'react';
 
-// TEI-specific renderer for letter documents
-export function renderParsedXml(parsed) {
-  if (!parsed) return null;
-  
-  // Navigate to TEI structure
-  const tei = parsed.TEI || parsed.tei;
-  if (!tei) {
+/**
+ * Main component to render the parsed XML Document
+ */
+export function renderParsedXml(teiElement) {
+  if (!teiElement || teiElement.tagName.toLowerCase() !== 'tei') {
     return <div className="text-red-600">Not a valid TEI document</div>;
   }
   
-  // Extract title from header
-  const title = extractTitle(tei);
-  
-  // Extract letter content
-  const letterContent = extractLetterContent(tei);
-  
-  // Create footnotes array that will be populated during rendering
+  // Create a list to hold footnotes
   const footnotesList = [];
+  
+  // Extract content
+  const title = extractTitle(teiElement);
+  const letterContent = extractLetterContent(teiElement);
   
   return (
     <div className="space-y-6">
-      {/* Title */}
+      {/* 1. Title */}
       {title && (
         <div className="border-b border-gray-200 pb-4">
           <h1 className="text-2xl font-bold text-gray-900 leading-tight text-left">
-            {title}
+            {renderNodeList(title.childNodes, footnotesList)}
           </h1>
         </div>
       )}
       
-      {/* Letter Content */}
+      {/* 2. Letter Content */}
       {letterContent && (
         <div className="max-w-none text-left">
-          {renderLetterContent(letterContent, footnotesList)}
+          {/* Render all children of the main content node */}
+          {renderNodeList(letterContent.childNodes, footnotesList)}
         </div>
       )}
       
-      {/* Footnotes */}
+      {/* 3. Footnotes */}
       {footnotesList.length > 0 && (
         <div className="border-t border-gray-200 pt-6 mt-8 text-left">
           <h3 className="text-lg font-semibold text-gray-900 mb-4 text-left">Notes</h3>
@@ -55,338 +52,154 @@ export function renderParsedXml(parsed) {
   );
 }
 
-// Helper to safely get the first element from a potential array
-function getFirst(item) {
-  return Array.isArray(item) ? item[0] : item;
+// --- DOM-WALKING RENDERER ---
+
+/**
+ * Renders a list of DOM nodes (NodeList)
+ */
+function renderNodeList(nodes, footnotesList) {
+  return Array.from(nodes).map((node, index) => {
+    return renderNode(node, footnotesList, `node-${index}`);
+  });
 }
 
-function extractTitle(tei) {
-  try {
-    const header = getFirst(tei.teiHeader) || getFirst(tei.TEIHeader);
-    const fileDesc = getFirst(header.fileDesc);
-    const titleStmt = getFirst(fileDesc.titleStmt);
+/**
+ * The core recursive function that renders a single DOM node
+ */
+function renderNode(node, footnotesList, key) {
+  // Case 1: Text Node (nodeType === 3)
+  // Just render the text content
+  if (node.nodeType === 3) {
+    return node.textContent;
+  }
+
+  // Case 2: Element Node (nodeType === 1)
+  // Render the corresponding React component
+  if (node.nodeType === 1) {
+    const tagName = node.tagName.toLowerCase();
     
-    if (titleStmt.title) {
-      // title content is an array of text and <lb> nodes
-      const titleContent = titleStmt.title;
-      return renderTitleContent(titleContent);
+    // Get all attributes as a simple object
+    const attrs = Array.from(node.attributes).reduce((acc, attr) => {
+      acc[attr.name] = attr.value;
+      return acc;
+    }, {});
+    
+    // Recursively render all child nodes
+    const children = renderNodeList(node.childNodes, footnotesList);
+    
+    // A generic style for all highlighted entities as requested
+    const entityStyle = "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium";
+
+    switch (tagName) {
+      // Block elements
+      case 'p':
+        return <p key={key} className="mb-4 leading-relaxed">{children}</p>;
+      case 'opener':
+        return <div key={key} className="mb-6 text-gray-700">{children}</div>;
+      case 'closer':
+        return <div key={key} className="mt-6 text-gray-700">{children}</div>;
+      case 'dateline':
+        return <div key={key} className="text-left mb-4 text-gray-600">{children}</div>;
+      case 'salute':
+        return <div key={key} className="mb-4 font-medium">{children}</div>;
+      case 'signed':
+        return <div key={key} className="text-left mt-4 font-medium">{children}</div>;
+
+      // Entity tags (Highlight Only)
+      case 'rs':
+      case 'persname':
+      case 'placename':
+      case 'work':
+      case 'organization':
+      case 'date':
+        return <span key={key} className={entityStyle}>{children}</span>;
+      
+      // Inline formatting
+      case 'q':
+        return <span key={key} className="italic">"{children}"</span>;
+      case 'hi':
+        const rendition = attrs.rend || attrs.rendition;
+        let className = '';
+        if (rendition === 'u' || rendition === 'underline' || rendition === 'uu') className = 'underline';
+        else if (rendition === 'i' || rendition === 'italic') className = 'italic';
+        else if (rendition === 'b' || rendition === 'bold') className = 'font-bold';
+        else if (rendition === 'aq') className = 'font-mono';
+        return <span key={key} className={className}>{children}</span>;
+      case 'foreign':
+        return <span key={key} className="italic text-gray-700" title={`Language: ${attrs['xml:lang'] || 'unknown'}`}>{children}</span>;
+
+      // Editorial tags
+      case 'note':
+        const noteIndex = footnotesList.length + 1;
+        // Render note content *for the footnote list*
+        // Pass a new empty array to prevent nested notes from polluting the main list
+        footnotesList.push(renderNodeList(node.childNodes, [])); 
+        // Render a superscript number in the text
+        return <sup key={key} className="text-blue-600 hover:text-blue-800 cursor-help font-medium">{noteIndex}</sup>;
+      case 'choice':
+        const expan = node.querySelector('expan');
+        if (expan) {
+          return <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Expanded abbreviation">{renderNodeList(expan.childNodes, footnotesList)}</span>;
+        }
+        const abbr = node.querySelector('abbr');
+        if (abbr) {
+          return <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Abbreviation">{renderNodeList(abbr.childNodes, footnotesList)}</span>;
+        }
+        return <span key={key}>{children}</span>; // Fallback
+      case 'add':
+        return <span key={key} className="text-green-700 bg-green-100" title="Addition">{children}</span>;
+      case 'del':
+        return <span key={key} className="text-red-700 line-through" title="Deletion">{children}</span>;
+      case 'sic':
+        return <span key={key} className="italic text-gray-500" title="Original spelling retained">{children}</span>;
+      case 'supplied':
+        return <span key={key} className="text-gray-500" title="Supplied by editor">{children}</span>;
+      case 'formula':
+        return <span key={key} className="font-mono text-sm text-blue-700">{children}</span>;
+      case 'unclear':
+        return <span key={key} className="bg-gray-100 text-gray-500" title="Unclear text">{children}</span>;
+
+      // Structural tags
+      case 'pb':
+        return <div key={key} title={`Page ${attrs.n}`} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
+      case 'lb':
+        return <br key={key} />;
+
+      // Default: render children without a wrapper
+      // This makes the renderer robust to unknown tags (like <body>, <div>)
+      default:
+        return <React.Fragment key={key}>{children}</React.Fragment>;
     }
-    
-    return null;
+  }
+
+  // Case 3: Other nodes (like comments, etc.)
+  // Render nothing
+  return null;
+}
+
+
+// --- DOM-QUERYING HELPERS ---
+
+function extractTitle(teiElement) {
+  try {
+    // Use querySelector to find the title node
+    return teiElement.querySelector("teiHeader > fileDesc > titleStmt > title");
   } catch (e) {
     console.error('Error extracting title:', e);
     return null;
   }
 }
 
-function renderTitleContent(titleContent) {
-  if (typeof titleContent === 'string') {
-    return titleContent;
-  }
-
-  // Handle arrays from preserveOrder
-  if (Array.isArray(titleContent)) {
-    return (
-      <React.Fragment>
-        {titleContent.map((item, index) => {
-          if (item['#text']) {
-            return item['#text'];
-          }
-          if (item.lb !== undefined) {
-            return <br key={`lb-${index}`} />;
-          }
-          // Handle nested tags within title if any
-          const tagName = Object.keys(item).find(k => !k.startsWith('@_'));
-          if (tagName) {
-            return renderTitleContent(item[tagName]); // Recursive
-          }
-          return null;
-        })}
-      </React.Fragment>
-    );
-  }
-  
-  // Fallback for simple object (e.g., just { '#text': '...' })
-  if (typeof titleContent === 'object' && titleContent !== null && titleContent['#text']) {
-    return titleContent['#text'];
-  }
-  
-  return null;
-}
-
-function extractLetterContent(tei) {
+function extractLetterContent(teiElement) {
   try {
-    const text = getFirst(tei.text);
-    const body = getFirst(text.body);
+    const body = teiElement.querySelector("text > body");
+    if (!body) return null;
     
-    // Look for div with type="writingSession" or just use body
-    if (body.div) {
-      const allDivs = Array.isArray(body.div) ? body.div : [body.div];
-      const writingSession = allDivs.find(d => d['@_type'] === 'writingSession') || allDivs[0];
-      return writingSession;
-    }
-    
-    return body;
+    // Find the writingSession div, or fall back to the whole body
+    const writingSession = body.querySelector("div[type='writingSession']");
+    return writingSession || body;
   } catch (e) {
     console.error('Error extracting letter content:', e);
     return null;
   }
-}
-
-function renderLetterContent(content, footnotesList) {
-  if (!content) return null;
-  
-  // The content of writingSession is an array of <pb>, <opener>, <p>, etc.
-  // We render it directly.
-  return (
-    <div className="space-y-4">
-      {renderContent(content, footnotesList, false)}
-    </div>
-  );
-}
-
-function renderTEIElement(element, footnotesList, key = 'element', inline = false) {
-  if (!element) return null;
-  
-  // Handle text node
-  if (element['#text']) {
-    return element['#text'];
-  }
-  
-  // Handle string (should be rare now, but good failsafe)
-  if (typeof element === 'string') {
-    return element;
-  }
-  
-  // Handle arrays (e.g., multiple <p> tags)
-  if (Array.isArray(element)) {
-      const Wrapper = inline ? React.Fragment : 'div';
-      const className = !inline ? 'space-y-2' : '';
-      return (
-        <Wrapper key={key} className={className}>
-          {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`, inline))}
-        </Wrapper>
-      );
-  }
-  
-  // Handle a single element node (e.g., { "p": [...] } or { "rs": [...] })
-  if (typeof element === 'object' && element !== null) {
-    const tagEntries = Object.entries(element).filter(([k]) => !k.startsWith('@_'));
-
-    // This should now be the main path
-    if (tagEntries.length === 1) {
-      const [tagName, content] = tagEntries[0];
-      return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`, inline);
-    }
-
-    // Fallback for mis-parsed objects (like <opener> which has multiple children)
-    const Wrapper = inline ? 'span' : 'div';
-    return (
-      <Wrapper key={key} className={!inline ? 'space-y-2' : ''}>
-        {tagEntries.map(([tagName, content]) => {
-          return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`, inline);
-        })}
-      </Wrapper>
-    );
-  }
-  
-  return null;
-}
-
-function renderTEITag(tagName, content, element, footnotesList, key, inline = false) {
-  // Get attributes from the parent 'element' object
-  const attrs = Object.fromEntries(
-    Object.entries(element)
-      .filter(([k]) => k.startsWith('@_'))
-      .map(([k, v]) => [k.substring(2), v])
-  );
-  
-  // --- START: Simplified Entity Styling ---
-  // A generic style for all highlighted entities as requested.
-  const entityStyle = "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium";
-  // --- END: Simplified Entity Styling ---
-  
-  switch (tagName) {
-    // Block elements
-    case 'p':
-      return (
-        <p key={key} className="mb-4 leading-relaxed">
-          {renderContent(content, footnotesList, true)}
-        </p>
-      );
-      
-    case 'opener':
-      return (
-        <div key={key} className="mb-6 text-gray-700">
-          {renderContent(content, footnotesList, false)}
-        </div>
-      );
-
-    case 'closer':
-      return (
-        <div key={key} className="mt-6 text-gray-700">
-          {renderContent(content, footnotesList, false)}
-        </div>
-      );
-      
-    case 'dateline':
-      return (
-        <div key={key} className="text-left mb-4 text-gray-600">
-          {renderContent(content, footnotesList, true)}
-        </div>
-      );
-      
-    case 'salute':
-      return (
-        <div key={key} className="mb-4 font-medium">
-          {renderContent(content, footnotesList, true)}
-        </div>
-      );
-      
-    case 'signed':
-      return (
-        <div key={key} className="text-left mt-4 font-medium">
-          {renderContent(content, footnotesList, true)}
-        </div>
-      );
-
-    // --- START: Updated Entity Tags (Highlight Only) ---
-    case 'rs':
-    case 'persName':
-    case 'placeName':
-    case 'work':
-    case 'organization': // Added common entity tags
-    case 'date': // 'date' was also styled, let's group it
-      return (
-        <span key={key} className={entityStyle}>
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-    // --- END: Updated Entity Tags ---
-      
-    case 'q':
-      return (
-        <span key={key} className="italic">
-          "{renderContent(content, footnotesList, true)}"
-        </span>
-      );
-      
-    case 'note':
-      const noteIndex = footnotesList.length + 1;
-      // Pass an empty array for footnotesList to prevent nested notes
-      // but entities *inside* the note will still be rendered/highlighted
-      footnotesList.push(renderContent(content, [])); 
-      return (
-        <sup key={key} className="text-blue-600 hover:text-blue-800 cursor-help font-medium">
-          {noteIndex}
-        </sup>
-      );
-      
-    case 'hi':
-      const rendition = attrs.rend || attrs.rendition;
-      let className = '';
-      if (rendition === 'u' || rendition === 'underline') className = 'underline';
-      else if (rendition === 'i' || rendition === 'italic') className = 'italic';
-      else if (rendition === 'b' || rendition === 'bold') className = 'font-bold';
-      
-      return (
-        <span key={key} className={className}>
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-      
-    case 'choice':
-      const expan = Array.isArray(content) ? content.find(n => n.expan) : null;
-      const abbr = Array.isArray(content) ? content.find(n => n.abbr) : null;
-
-      if (expan) {
-        return (
-          <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Expanded abbreviation">
-            {renderContent(expan.expan, footnotesList, true)}
-          </span>
-        );
-      } else if (abbr) {
-        return (
-          <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Abbreviation">
-            {renderContent(abbr.abbr, footnotesList, true)}
-          </span>
-        );
-      }
-      return renderContent(content, footnotesList, inline);
-      
-    // Other tags from your files
-    case 'add':
-      return (
-        <span key={key} className="text-green-700 bg-green-100" title="Addition">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-    
-    case 'del':
-      return (
-        <span key={key} className="text-red-700 line-through" title="Deletion">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-
-    case 'sic':
-      return (
-        <span key={key} className="italic text-gray-500" title="Original spelling retained">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-    
-    case 'supplied':
-      return (
-        <span key={key} className="text-gray-500" title="Supplied by editor">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-    
-    case 'formula':
-      return (
-        <span key={key} className="font-mono text-sm text-blue-700">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-
-    case 'unclear':
-      return (
-        <span key={key} className="bg-gray-100 text-gray-500" title="Unclear text">
-          {renderContent(content, footnotesList, true)}
-        </span>
-      );
-      
-    // Structural tags
-    case 'pb':
-      return <div key={key} title={`Page ${attrs.n}`} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
-      
-    case 'lb':
-      return <br key={key} />;
-      
-    case '#text':
-      return content;
-      
-    default:
-      // For unknown tags, just render their content
-      return <React.Fragment key={key}>{renderContent(content, footnotesList, inline)}</React.Fragment>;
-  }
-}
-
-function renderContent(content, footnotesList, inline = false) {
-  if (typeof content === 'string') {
-    return content;
-  }
-  
-  if (Array.isArray(content)) {
-    // This is the main path for mixed content (text nodes and element nodes)
-    return <>{content.map((item, index) => renderTEIElement(item, footnotesList, `content-${index}`, inline))}</>;
-  }
-  
-  if (typeof content === 'object' && content !== null) {
-    // This handles cases where content is a single object (e.g., { '#text': '...' })
-    return renderTEIElement(content, footnotesList, 'content', inline);
-  }
-  
-  return null;
 }
