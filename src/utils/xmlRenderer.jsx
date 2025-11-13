@@ -1,8 +1,6 @@
 import React from 'react';
 
-/**
- * Main component to render the parsed XML Document
- */
+
 export function renderParsedXml(teiElement) {
   if (!teiElement || teiElement.tagName.toLowerCase() !== 'tei') {
     return <div className="text-red-600">Not a valid TEI document</div>;
@@ -52,20 +50,12 @@ export function renderParsedXml(teiElement) {
   );
 }
 
-// --- DOM-WALKING RENDERER ---
-
-/**
- * Renders a list of DOM nodes (NodeList)
- */
 function renderNodeList(nodes, footnotesList) {
   return Array.from(nodes).map((node, index) => {
     return renderNode(node, footnotesList, `node-${index}`);
   });
 }
 
-/**
- * The core recursive function that renders a single DOM node
- */
 function renderNode(node, footnotesList, key) {
   // Case 1: Text Node (nodeType === 3)
   // Just render the text content
@@ -84,11 +74,25 @@ function renderNode(node, footnotesList, key) {
       return acc;
     }, {});
     
-    // Recursively render all child nodes
     const children = renderNodeList(node.childNodes, footnotesList);
     
-    // A generic style for all highlighted entities as requested
     const entityStyle = "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium";
+
+    // Helper: map rs @type values to pastel Tailwind classes
+    const rsTypeToClass = (type) => {
+      if (!type) return "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium";
+      const t = type.toLowerCase();
+      // Pastel palette for the specific rs types used in this project
+      const map = {
+        person: "bg-pink-100 text-pink-800 px-1 py-0.5 rounded text-sm font-medium",
+        place: "bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded text-sm font-medium",
+        work: "bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm font-medium",
+        bible: "bg-purple-100 text-purple-800 px-1 py-0.5 rounded text-sm font-medium",
+        letter: "bg-sky-100 text-sky-800 px-1 py-0.5 rounded text-sm font-medium",
+        default: "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium",
+      };
+      return map[t] || map.default;
+    };
 
     switch (tagName) {
       // Block elements
@@ -106,7 +110,12 @@ function renderNode(node, footnotesList, key) {
         return <div key={key} className="text-left mt-4 font-medium">{children}</div>;
 
       // Entity tags (Highlight Only)
-      case 'rs':
+      case 'rs': {
+        // RS elements often have a @type attribute specifying what they refer to
+        const rsType = attrs.type || attrs.t || attrs.subtype || '';
+        const rsClass = rsTypeToClass(rsType);
+        return <span key={key} className={rsClass} title={rsType || undefined}>{children}</span>;
+      }
       case 'persname':
       case 'placename':
       case 'work':
@@ -128,13 +137,9 @@ function renderNode(node, footnotesList, key) {
       case 'foreign':
         return <span key={key} className="italic text-gray-700" title={`Language: ${attrs['xml:lang'] || 'unknown'}`}>{children}</span>;
 
-      // Editorial tags
       case 'note':
         const noteIndex = footnotesList.length + 1;
-        // Render note content *for the footnote list*
-        // Pass a new empty array to prevent nested notes from polluting the main list
         footnotesList.push(renderNodeList(node.childNodes, [])); 
-        // Render a superscript number in the text
         return <sup key={key} className="text-blue-600 hover:text-blue-800 cursor-help font-medium">{noteIndex}</sup>;
       case 'choice':
         const expan = node.querySelector('expan');
@@ -159,7 +164,6 @@ function renderNode(node, footnotesList, key) {
       case 'unclear':
         return <span key={key} className="bg-gray-100 text-gray-500" title="Unclear text">{children}</span>;
 
-      // Structural tags
       case 'pb':
         // Don't render the first page break (n=1) as it's redundant
         if (attrs.n === '1' || attrs.n === 1) {
@@ -175,14 +179,8 @@ function renderNode(node, footnotesList, key) {
         return <React.Fragment key={key}>{children}</React.Fragment>;
     }
   }
-
-  // Case 3: Other nodes (like comments, etc.)
-  // Render nothing
   return null;
 }
-
-
-// --- DOM-QUERYING HELPERS ---
 
 function extractTitle(teiElement) {
   try {
@@ -197,9 +195,7 @@ function extractTitle(teiElement) {
 function extractLetterContent(teiElement) {
   try {
     const body = teiElement.querySelector("text > body");
-    if (!body) return null;
-    
-    // Find the writingSession div, or fall back to the whole body
+    if (!body) return null;    
     const writingSession = body.querySelector("div[type='writingSession']");
     return writingSession || body;
   } catch (e) {
