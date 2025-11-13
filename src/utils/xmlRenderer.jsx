@@ -1,5 +1,21 @@
 import React from 'react';
 
+// Global tooltip manager to ensure only one tooltip shows at a time
+const tooltipManager = {
+  activeTooltip: null,
+  setActive: (tooltipId, showFn) => {
+    if (tooltipManager.activeTooltip && tooltipManager.activeTooltip !== tooltipId) {
+      tooltipManager.activeTooltip.hide();
+    }
+    tooltipManager.activeTooltip = { id: tooltipId, hide: showFn };
+  },
+  clear: (tooltipId) => {
+    if (tooltipManager.activeTooltip && tooltipManager.activeTooltip.id === tooltipId) {
+      tooltipManager.activeTooltip = null;
+    }
+  }
+};
+
 // Custom tooltip component for better styling
 const Tooltip = ({ children, content }) => {
   if (!content) return children;
@@ -7,8 +23,21 @@ const Tooltip = ({ children, content }) => {
   const [isVisible, setIsVisible] = React.useState(false);
   const [position, setPosition] = React.useState({ x: 0, y: 0 });
   const triggerRef = React.useRef(null);
+  const timeoutRef = React.useRef(null);
+  const tooltipId = React.useRef(Math.random().toString(36));
+  
+  const hideTooltip = () => {
+    setIsVisible(false);
+    tooltipManager.clear(tooltipId.current);
+  };
   
   const handleMouseEnter = (e) => {
+    // Clear any pending hide timeout
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    
     if (triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
       setPosition({
@@ -16,11 +45,15 @@ const Tooltip = ({ children, content }) => {
         y: rect.top - 8
       });
       setIsVisible(true);
+      tooltipManager.setActive(tooltipId.current, hideTooltip);
     }
   };
   
-  const handleMouseLeave = () => {
-    setIsVisible(false);
+  const handleMouseLeave = (e) => {
+    // Add a small delay before hiding to handle nested elements
+    timeoutRef.current = setTimeout(() => {
+      hideTooltip();
+    }, 100);
   };
   
   return (
