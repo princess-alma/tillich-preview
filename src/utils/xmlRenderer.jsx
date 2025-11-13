@@ -62,17 +62,123 @@ function extractTitle(tei) {
     const titleStmt = fileDesc.titleStmt;
     
     if (titleStmt.title) {
-      // Handle title as string or object with #text
       const title = titleStmt.title;
+      
+
+      
+      // If it's a simple string, return it
       if (typeof title === 'string') return title;
-      if (title['#text']) return title['#text'];
-      if (Array.isArray(title)) return title[0]['#text'] || title[0];
+      
+      // If it's an array, take the first item
+      if (Array.isArray(title)) {
+        return renderTitleContent(title[0]);
+      }
+      
+      // If it's an object, render it properly
+      return renderTitleContent(title);
     }
     
     return null;
   } catch (e) {
+    console.error('Error extracting title:', e);
     return null;
   }
+}
+
+function renderTitleContent(titleObj) {
+  if (typeof titleObj === 'string') {
+    return titleObj;
+  }
+  
+  if (typeof titleObj === 'object' && titleObj !== null) {
+    // Handle simple text content
+    if (titleObj['#text'] && Object.keys(titleObj).length === 1) {
+      return titleObj['#text'];
+    }
+    
+    // Special case: title with lb tag where parser combines text
+    // The structure is: { "lb": "", "#text": "Part1Part2" }
+    // We need to split the text and insert line breaks
+    if (titleObj['lb'] !== undefined && titleObj['#text']) {
+      const text = titleObj['#text'];
+      
+      // Common patterns to split on for German letters
+      // Look for patterns like "PersonName an PersonNamevom Date" or "Title vom Date"
+      const patterns = [
+        /(\s+vom\s+)/i,
+        /(\s+am\s+)/i, 
+        /(\s+den\s+)/i,
+        /(vom\s+)/i
+      ];
+      
+      for (const pattern of patterns) {
+        if (pattern.test(text)) {
+          const parts = text.split(pattern);
+          if (parts.length >= 2) {
+            const result = [];
+            result.push(parts[0]);
+            result.push(<br key="title-lb" />);
+            // Add the separator and rest back together
+            result.push(parts.slice(1).join(''));
+            return <span>{result}</span>;
+          }
+        }
+      }
+      
+      // Fallback: if no pattern matches, just return the text
+      return text;
+    }
+    
+    // Handle mixed content - this is the key part for titles with <lb/> tags
+    const parts = [];
+    
+    // The XML parser might structure mixed content differently
+    // Let's handle various possible structures
+    if (Array.isArray(titleObj)) {
+      // If title is an array of mixed content
+      titleObj.forEach((item, index) => {
+        if (typeof item === 'string') {
+          parts.push(item);
+        } else if (item === null || item === undefined) {
+          // Sometimes <lb/> gets parsed as null/undefined
+          parts.push(<br key={`lb-${index}`} />);
+        } else if (typeof item === 'object') {
+          // Handle nested objects
+          parts.push(renderTitleContent(item));
+        }
+      });
+    } else {
+      // Handle object with mixed content
+      Object.entries(titleObj).forEach(([key, value], index) => {
+        if (key === '#text') {
+          // Split text by potential line break markers and add the text
+          if (typeof value === 'string') {
+            parts.push(value);
+          }
+        } else if (key === 'lb') {
+          // Add line break - can be single or array
+          if (Array.isArray(value)) {
+            value.forEach((_, i) => parts.push(<br key={`lb-${index}-${i}`} />));
+          } else {
+            parts.push(<br key={`lb-${index}`} />);
+          }
+        } else if (!key.startsWith('@_')) {
+          // Handle other inline elements
+          if (typeof value === 'string') {
+            parts.push(value);
+          } else if (value && typeof value === 'object') {
+            parts.push(renderTitleContent(value));
+          }
+        }
+      });
+    }
+    
+    if (parts.length > 0) {
+      return <span>{parts}</span>;
+    }
+  }
+  
+  return null;
 }
 
 function extractLetterContent(tei) {
@@ -104,7 +210,7 @@ function renderLetterContent(content, footnotesList) {
   );
 }
 
-function renderTEIElement(element, footnotesList, key = 'element') {
+function renderTEIElement(element, footnotesList, key = 'element', inline = false) {
   if (!element) return null;
   
   // Handle text content
@@ -114,10 +220,13 @@ function renderTEIElement(element, footnotesList, key = 'element') {
   
   // Handle arrays
   if (Array.isArray(element)) {
+    const Wrapper = inline ? 'span' : 'div';
+    const wrapperProps = inline ? {} : { className: "space-y-2" };
+    
     return (
-      <div key={key} className="space-y-2">
-        {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`))}
-      </div>
+      <Wrapper key={key} {...wrapperProps}>
+        {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`, inline))}
+      </Wrapper>
     );
   }
   
@@ -125,19 +234,22 @@ function renderTEIElement(element, footnotesList, key = 'element') {
   if (typeof element === 'object') {
     const tagEntries = Object.entries(element).filter(([k]) => !k.startsWith('@_'));
     
+    // Use span for inline rendering, div for block
+    const Wrapper = inline ? 'span' : 'div';
+    
     return (
-      <div key={key}>
+      <Wrapper key={key}>
         {tagEntries.map(([tagName, content]) => {
-          return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`);
+          return renderTEITag(tagName, content, element, footnotesList, `${key}-${tagName}`, inline);
         })}
-      </div>
+      </Wrapper>
     );
   }
   
   return null;
 }
 
-function renderTEITag(tagName, content, element, footnotesList, key) {
+function renderTEITag(tagName, content, element, footnotesList, key, inline = false) {
   const attributes = Object.entries(element).filter(([k]) => k.startsWith('@_'));
   const attrs = Object.fromEntries(attributes.map(([k, v]) => [k.substring(2), v]));
   
@@ -145,7 +257,7 @@ function renderTEITag(tagName, content, element, footnotesList, key) {
     case 'p':
       return (
         <p key={key} className="mb-4 leading-relaxed">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </p>
       );
       
@@ -153,28 +265,28 @@ function renderTEITag(tagName, content, element, footnotesList, key) {
     case 'closer':
       return (
         <div key={key} className={`${tagName === 'opener' ? 'mb-6' : 'mt-6'} italic text-gray-700`}>
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </div>
       );
       
     case 'dateline':
       return (
         <div key={key} className="text-right mb-4 text-gray-600">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </div>
       );
       
     case 'salute':
       return (
         <div key={key} className="mb-4 font-medium">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </div>
       );
       
     case 'signed':
       return (
         <div key={key} className="text-right mt-4 font-medium">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </div>
       );
       
@@ -183,28 +295,28 @@ function renderTEITag(tagName, content, element, footnotesList, key) {
       const bgColor = getRsColor(rsType);
       return (
         <span key={key} className={`${bgColor} px-1 py-0.5 rounded text-sm font-medium`}>
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </span>
       );
       
     case 'persName':
       return (
         <span key={key} className="bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </span>
       );
       
     case 'placeName':
       return (
         <span key={key} className="bg-green-100 text-green-800 px-1 py-0.5 rounded text-sm font-medium">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </span>
       );
       
     case 'date':
       return (
         <span key={key} className="bg-purple-100 text-purple-800 px-1 py-0.5 rounded text-sm font-medium">
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </span>
       );
       
@@ -226,7 +338,7 @@ function renderTEITag(tagName, content, element, footnotesList, key) {
       
       return (
         <span key={key} className={className}>
-          {renderContent(content, footnotesList)}
+          {renderContent(content, footnotesList, true)}
         </span>
       );
       
@@ -235,42 +347,46 @@ function renderTEITag(tagName, content, element, footnotesList, key) {
       if (content.expan) {
         return (
           <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Expanded abbreviation">
-            {renderContent(content.expan, footnotesList)}
+            {renderContent(content.expan, footnotesList, true)}
           </span>
         );
       } else if (content.abbr) {
         return (
           <span key={key} className="bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm" title="Abbreviation">
-            {renderContent(content.abbr, footnotesList)}
+            {renderContent(content.abbr, footnotesList, true)}
           </span>
         );
       }
-      return renderContent(content, footnotesList);
+      return renderContent(content, footnotesList, inline);
       
     case 'pb':
       // Page break - show as a subtle divider
       return <div key={key} className="my-2 border-t border-gray-300 w-16 mx-auto opacity-50"></div>;
+      
+    case 'lb':
+      // Line break
+      return <br key={key} />;
       
     case '#text':
       return <span key={key}>{content}</span>;
       
     default:
       // For unknown tags, just render content
-      return <span key={key}>{renderContent(content, footnotesList)}</span>;
+      return <span key={key}>{renderContent(content, footnotesList, true)}</span>;
   }
 }
 
-function renderContent(content, footnotesList) {
+function renderContent(content, footnotesList, inline = false) {
   if (typeof content === 'string') {
     return content;
   }
   
   if (Array.isArray(content)) {
-    return content.map((item, index) => renderTEIElement(item, footnotesList, `content-${index}`));
+    return content.map((item, index) => renderTEIElement(item, footnotesList, `content-${index}`, inline));
   }
   
   if (typeof content === 'object') {
-    return renderTEIElement(content, footnotesList);
+    return renderTEIElement(content, footnotesList, 'content', inline);
   }
   
   return null;
