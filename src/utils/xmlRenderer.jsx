@@ -24,7 +24,7 @@ export function renderParsedXml(parsed) {
       {/* Title */}
       {title && (
         <div className="border-b border-gray-200 pb-4">
-          <h1 className="text-2xl font-bold text-gray-900 leading-tight">
+          <h1 className="text-2xl font-bold text-gray-900 leading-tight text-left">
             {title}
           </h1>
         </div>
@@ -32,15 +32,15 @@ export function renderParsedXml(parsed) {
       
       {/* Letter Content */}
       {letterContent && (
-        <div className="prose prose-lg max-w-none">
+        <div className="max-w-none text-left">
           {renderLetterContent(letterContent, footnotesList)}
         </div>
       )}
       
       {/* Footnotes */}
       {footnotesList.length > 0 && (
-        <div className="border-t border-gray-200 pt-6 mt-8">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Notes</h3>
+        <div className="border-t border-gray-200 pt-6 mt-8 text-left">
+          <h3 className="text-lg font-semibold text-gray-900 mb-4 text-left">Notes</h3>
           <div className="space-y-3">
             {footnotesList.map((note, index) => (
               <div key={index} className="text-sm text-gray-700 flex">
@@ -213,6 +213,8 @@ function renderLetterContent(content, footnotesList) {
 function renderTEIElement(element, footnotesList, key = 'element', inline = false) {
   if (!element) return null;
   
+
+  
   // Handle text content
   if (typeof element === 'string') {
     return <span key={key}>{element}</span>;
@@ -220,14 +222,24 @@ function renderTEIElement(element, footnotesList, key = 'element', inline = fals
   
   // Handle arrays
   if (Array.isArray(element)) {
-    const Wrapper = inline ? 'span' : 'div';
-    const wrapperProps = inline ? {} : { className: "space-y-2" };
-    
-    return (
-      <Wrapper key={key} {...wrapperProps}>
-        {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`, inline))}
-      </Wrapper>
-    );
+    if (inline) {
+      // For inline arrays, add spaces between elements
+      const items = [];
+      element.forEach((item, index) => {
+        if (index > 0) {
+          items.push(' '); // Add space before each item except the first
+        }
+        items.push(renderTEIElement(item, footnotesList, `${key}-${index}`, inline));
+      });
+      return <span key={key}>{items}</span>;
+    } else {
+      // For block arrays, use div with spacing
+      return (
+        <div key={key} className="space-y-2">
+          {element.map((item, index) => renderTEIElement(item, footnotesList, `${key}-${index}`, inline))}
+        </div>
+      );
+    }
   }
   
   // Handle objects
@@ -271,7 +283,7 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       
     case 'dateline':
       return (
-        <div key={key} className="text-right mb-4 text-gray-600">
+        <div key={key} className="text-left mb-4 text-gray-600">
           {renderContent(content, footnotesList, true)}
         </div>
       );
@@ -285,7 +297,7 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       
     case 'signed':
       return (
-        <div key={key} className="text-right mt-4 font-medium">
+        <div key={key} className="text-left mt-4 font-medium">
           {renderContent(content, footnotesList, true)}
         </div>
       );
@@ -317,6 +329,13 @@ function renderTEITag(tagName, content, element, footnotesList, key, inline = fa
       return (
         <span key={key} className="bg-purple-100 text-purple-800 px-1 py-0.5 rounded text-sm font-medium">
           {renderContent(content, footnotesList, true)}
+        </span>
+      );
+      
+    case 'q':
+      return (
+        <span key={key} className="italic">
+          "{renderContent(content, footnotesList, true)}"
         </span>
       );
       
