@@ -181,11 +181,29 @@ function renderNode(node, footnotesList, key) {
           </Tooltip>
         );
       }
+      case 'date': {
+        const when = attrs.when || '';
+        const notBefore = attrs.notBefore || attrs.notbefore || '';
+        const notAfter = attrs.notAfter || attrs.notafter || '';
+        
+        // Build tooltip text showing date attributes
+        let dateTooltipParts = [];
+        if (when) dateTooltipParts.push(`When: ${when}`);
+        if (notBefore) dateTooltipParts.push(`Not before: ${notBefore}`);
+        if (notAfter) dateTooltipParts.push(`Not after: ${notAfter}`);
+        
+        const dateTooltipText = dateTooltipParts.join(', ');
+        
+        return (
+          <Tooltip key={key} content={dateTooltipText}>
+            <span className={entityStyle}>{children}</span>
+          </Tooltip>
+        );
+      }
       case 'persname':
       case 'placename':
       case 'work':
       case 'organization':
-      case 'date':
         return <span key={key} className={entityStyle}>{children}</span>;
       
       // Inline formatting
