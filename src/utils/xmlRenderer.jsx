@@ -120,8 +120,8 @@ export function renderParsedXml(teiElement) {
           <h3 className="text-lg font-semibold text-gray-900 mb-4 text-left">Notes</h3>
           <div className="space-y-3">
             {footnotesList.map((note, index) => (
-              <div key={index} className="text-sm text-gray-700 flex">
-                <sup className="text-blue-600 font-medium mr-2">{index + 1}</sup>
+              <div key={index} className="text-sm text-gray-700 flex items-start">
+                <span className="text-blue-600 font-medium mr-2 min-w-[1.5rem]">{index + 1}.</span>
                 <div className="flex-1">{note}</div>
               </div>
             ))}
