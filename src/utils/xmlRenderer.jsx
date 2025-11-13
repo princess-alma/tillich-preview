@@ -137,7 +137,7 @@ function renderNode(node, footnotesList, key) {
         place: "bg-emerald-100 text-emerald-800 px-1 py-0.5 rounded text-sm font-medium",
         work: "bg-yellow-100 text-yellow-800 px-1 py-0.5 rounded text-sm font-medium",
         bible: "bg-purple-100 text-purple-800 px-1 py-0.5 rounded text-sm font-medium",
-        letter: "bg-sky-100 text-sky-800 px-1 py-0.5 rounded text-sm font-medium",
+        letter: "bg-teal-100 text-teal-800 px-1 py-0.5 rounded text-sm font-medium",
         default: "bg-blue-100 text-blue-800 px-1 py-0.5 rounded text-sm font-medium",
       };
       return map[t] || map.default;
