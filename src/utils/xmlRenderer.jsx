@@ -177,7 +177,7 @@ function renderNode(node, footnotesList, key) {
         
         return (
           <Tooltip key={key} content={tooltipText}>
-            <span className={rsClass}>{children}</span>
+            <span className={`${rsClass} cursor-pointer`}>{children}</span>
           </Tooltip>
         );
       }
@@ -196,7 +196,7 @@ function renderNode(node, footnotesList, key) {
         
         return (
           <Tooltip key={key} content={dateTooltipText}>
-            <span className={entityStyle}>{children}</span>
+            <span className={`${entityStyle} cursor-pointer`}>{children}</span>
           </Tooltip>
         );
       }
