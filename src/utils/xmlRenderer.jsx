@@ -239,7 +239,11 @@ function renderNode(node, footnotesList, key) {
       case 'del':
         return <span key={key} className="text-red-700 line-through" title="Deletion">{children}</span>;
       case 'sic':
-        return <span key={key} className="italic text-gray-500" title="Original spelling retained">{children}</span>;
+        return (
+          <Tooltip key={key} content="sic">
+            <span className="italic text-gray-500 cursor-pointer">{children}</span>
+          </Tooltip>
+        );
       case 'supplied':
         return <span key={key} className="text-gray-500" title="Supplied by editor">{children}</span>;
       case 'formula':
