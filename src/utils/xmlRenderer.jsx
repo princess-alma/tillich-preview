@@ -1,5 +1,54 @@
 import React from 'react';
 
+// Custom tooltip component for better styling
+const Tooltip = ({ children, content }) => {
+  if (!content) return children;
+  
+  const [isVisible, setIsVisible] = React.useState(false);
+  const [position, setPosition] = React.useState({ x: 0, y: 0 });
+  const triggerRef = React.useRef(null);
+  
+  const handleMouseEnter = (e) => {
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      setPosition({
+        x: rect.left + rect.width / 2,
+        y: rect.top - 8
+      });
+      setIsVisible(true);
+    }
+  };
+  
+  const handleMouseLeave = () => {
+    setIsVisible(false);
+  };
+  
+  return (
+    <>
+      <span 
+        ref={triggerRef}
+        className="inline"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {children}
+      </span>
+      {isVisible && (
+        <div 
+          className="fixed px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg pointer-events-none whitespace-nowrap z-[9999] transform -translate-x-1/2 -translate-y-full"
+          style={{ 
+            left: position.x, 
+            top: position.y 
+          }}
+        >
+          {content}
+          <div className="absolute top-full left-1/2 transform -translate-x-1/2 w-0 h-0 border-l-4 border-r-4 border-t-4 border-transparent border-t-gray-900"></div>
+        </div>
+      )}
+    </>
+  );
+};
+
 
 export function renderParsedXml(teiElement) {
   if (!teiElement || teiElement.tagName.toLowerCase() !== 'tei') {
@@ -113,8 +162,24 @@ function renderNode(node, footnotesList, key) {
       case 'rs': {
         // RS elements often have a @type attribute specifying what they refer to
         const rsType = attrs.type || attrs.t || attrs.subtype || '';
+        const rsRef = attrs.ref || '';
         const rsClass = rsTypeToClass(rsType);
-        return <span key={key} className={rsClass} title={rsType || undefined}>{children}</span>;
+        
+        // Build tooltip text showing type and ref
+        let tooltipText = '';
+        if (rsType && rsRef) {
+          tooltipText = `Type: ${rsType}, Ref: ${rsRef}`;
+        } else if (rsType) {
+          tooltipText = `Type: ${rsType}`;
+        } else if (rsRef) {
+          tooltipText = `Ref: ${rsRef}`;
+        }
+        
+        return (
+          <Tooltip key={key} content={tooltipText}>
+            <span className={rsClass}>{children}</span>
+          </Tooltip>
+        );
       }
       case 'persname':
       case 'placename':
