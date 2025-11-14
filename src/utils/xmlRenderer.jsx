@@ -254,8 +254,16 @@ function renderNode(node, footnotesList, key) {
         else if (rendition === 'b' || rendition === 'bold') className = 'font-bold';
         else if (rendition === 'aq') className = 'font-mono';
         return <span key={key} className={className}>{children}</span>;
-      case 'foreign':
-        return <span key={key} className="italic text-gray-700" title={`Language: ${attrs['xml:lang'] || 'unknown'}`}>{children}</span>;
+      case 'foreign': {
+        // Build tooltip content from all attributes, commonly xml:lang
+        const attrPairs = Object.entries(attrs).map(([k, v]) => `${k}: ${v}`).join(', ');
+        const tooltipContent = attrPairs ? `Foreign: ${attrPairs}` : 'Foreign';
+        return (
+          <Tooltip key={key} content={tooltipContent}>
+            <span className="italic text-gray-700 cursor-pointer">{children}</span>
+          </Tooltip>
+        );
+      }
 
       case 'note':
         const noteIndex = footnotesList.length + 1;
@@ -285,8 +293,16 @@ function renderNode(node, footnotesList, key) {
         return <span key={key} className="text-gray-500" title="Supplied by editor">{children}</span>;
       case 'formula':
         return <span key={key} className="font-mono text-sm text-blue-700">{children}</span>;
-      case 'unclear':
-        return <span key={key} className="bg-gray-100 text-gray-500" title="Unclear text">{children}</span>;
+      case 'unclear': {
+        // Build tooltip content from all attributes (e.g., reason, extent, resp, etc.)
+        const attrPairs = Object.entries(attrs).map(([k, v]) => `${k}: ${v}`).join(', ');
+        const tooltipContent = attrPairs ? `Unclear: ${attrPairs}` : 'Unclear';
+        return (
+          <Tooltip key={key} content={tooltipContent}>
+            <span className="bg-gray-100 text-gray-500 cursor-pointer">{children}</span>
+          </Tooltip>
+        );
+      }
 
       case 'pb':
         // Don't render the first page break (n=1) as it's redundant
